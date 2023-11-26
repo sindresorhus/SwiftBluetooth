@@ -14,26 +14,30 @@ public extension CentralManager {
     @available(iOS 13, macOS 10.15, watchOS 6.0, tvOS 13.0, *)
     @discardableResult
     func connect(_ peripheral: Peripheral, options: [String: Any]? = nil) async throws -> Peripheral {
-        try await withCheckedThrowingContinuation { cont in
-            self.connect(peripheral, options: options) { result in
-                switch result {
-                case .success(let peripheral):
-                    cont.resume(returning: peripheral)
-                case .failure(let error):
-                    cont.resume(throwing: error)
-                }
-            }
-        }
+		try await withTaskCancellationHandler {
+			try await withCheckedThrowingContinuation { cont in
+				self.connect(peripheral, options: options) { result in
+					switch result {
+					case .success(let peripheral):
+						cont.resume(returning: peripheral)
+					case .failure(let error):
+						cont.resume(throwing: error)
+					}
+				}
+			}
+		} onCancel: {
+			cancelPeripheralConnection(peripheral)
+		}
     }
 
     // This method doesn't need to be marked async, but it prevents a signature collision
     @available(iOS 13, macOS 10.15, watchOS 6.0, tvOS 13.0, *)
-    func scanForPeripherals(withServices services: [CBUUID]? = nil, options: [String: Any]? = nil) async -> AsyncStream<Peripheral> {
+    func scanForPeripherals(withServices services: [CBUUID]? = nil, options: [String: Any]? = nil) async -> AsyncStream<(Peripheral, [String: Any], Double)> {
         .init { cont in
             let subscription = eventSubscriptions.queue { event, done in
                 switch event {
-                case .discovered(let peripheral, _, _):
-                    cont.yield(peripheral)
+                case .discovered(let peripheral, let ad, let rssi):
+					cont.yield((peripheral, ad, rssi.doubleValue))
                 case .stopScan:
                     done()
                     cont.finish()
